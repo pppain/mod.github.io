@@ -1,0 +1,616 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>Moderatör Panel - emir2MİNN</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Nadide, non-intrusive pending-bets widget styles (minimal & non-blocking) -->
+  <style>
+    /* Small floating widget to surface Tek/Çift (bet) approvals to moderators.
+       It is compact, won't cover the page and is visually subtle. */
+    #pendingBetsWidget {
+      position: fixed;
+      right: 20px;
+      top: 18px;
+      z-index: 8600;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-family: 'Inter', sans-serif;
+    }
+    .pending-bets-btn {
+      background: linear-gradient(90deg,#FFD400,#FFB347);
+      color:#021122;
+      padding:8px 12px;
+      border-radius:10px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+      border: 1px solid rgba(0,0,0,0.06);
+      font-weight:800;
+      cursor:pointer;
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      transform: translateZ(0);
+    }
+    .pending-bets-badge {
+      background:#FF4080;
+      color:white;
+      padding:3px 8px;
+      border-radius:999px;
+      font-weight:900;
+      font-size:0.85rem;
+      min-width:26px;
+      text-align:center;
+      box-shadow: 0 6px 18px rgba(255,64,128,0.12);
+    }
+
+    /* The panel that expands when clicked - restrained size */
+    .pending-bets-panel {
+      width: 340px;
+      max-height: 420px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border: 1px solid rgba(255,255,255,0.04);
+      border-radius: 12px;
+      padding: 8px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      overflow: auto;
+      display: none;
+      flex-direction: column;
+      gap:8px;
+    }
+    .pending-bets-panel.open { display: flex; }
+
+    .pending-bet-item {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      padding:8px;
+      border-radius:8px;
+      background: rgba(0,0,0,0.03);
+      font-size:0.95rem;
+    }
+    .pending-bet-meta { color:var(--text-muted); font-size:0.82rem; }
+    .pending-bet-actions button {
+      margin-left:6px;
+      padding:6px 8px;
+      border-radius:8px;
+      border:none;
+      cursor:pointer;
+      font-weight:700;
+      font-size:0.82rem;
+    }
+    .pending-bet-actions .approve { background:var(--accent-success); color:#021122; }
+    .pending-bet-actions .reject { background:var(--accent-danger); color:#fff; }
+
+    .pending-bets-empty { color:var(--text-muted); padding:8px; text-align:center; font-size:0.95rem; }
+
+    /* small highlight to temporarily mark associated row in admin table if present */
+    .highlight-admin-row {
+      animation: highlightPulse 2s ease forwards;
+    }
+    @keyframes highlightPulse {
+      0% { background: rgba(255,235,59,0.12); transform: translateY(0); }
+      50% { background: rgba(255,235,59,0.18); transform: translateY(-2px); }
+      100% { background: transparent; transform: translateY(0); }
+    }
+
+    /* responsive tweak so widget doesn't overlap admin auth modal on very small screens */
+    @media (max-width: 420px) {
+      #pendingBetsWidget { right: 8px; top: 8px; }
+      .pending-bets-panel { width: 92vw; max-height: 56vh; }
+    }
+  </style>
+</head>
+<body class="admin-page">
+  <div class="page">
+    <a href="https://www.google.com/" class="admin-link" style="left: 12px; transform:none;">← Kullanıcı Sayfasına Dön</a>
+
+    <header class="header">
+      <h1 class="logo">Moderatör Kontrol Paneli <span style="font-weight: 300; color: var(--text-muted); font-size: 0.8em;">(Admin)</span></h1>
+      <p class="subtitle">Sistem Yönetimi, Kupon, Duyuru ve Talepler</p>
+    </header>
+
+    <!-- Pending bets widget (keeps UI light and non-blocking) -->
+    <div id="pendingBetsWidget" aria-live="polite" aria-atomic="true">
+      <button id="pendingBetsToggle" class="pending-bets-btn" title="Bekleyen Tek/Çift onayları">
+        <span style="font-size:1rem;">⚡</span>
+        <span style="font-size:0.95rem;">Bahis Onayları</span>
+        <span id="pendingBetsCount" class="pending-bets-badge" aria-hidden="true">0</span>
+      </button>
+      <div id="pendingBetsPanel" class="pending-bets-panel" role="region" aria-label="Bekleyen bahis talepleri"></div>
+    </div>
+
+    <!-- rest of page unchanged -->
+    <div id="adminPanelView" style="display:flex; gap:18px; flex-direction:column; max-width:1100px; margin: 0 auto;">
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <div class="field">
+          <button id="adminClearChatBtn" class="admin-action-btn clear-chat-btn" title="Genel Sohbeti Sıfırla" style="padding:10px; background:#ff6b6b; color:#08121a; border-radius:8px; border:none;">SOHBETİ SIFIRLA</button>
+        </div>
+
+        <div class="field">
+          <button id="adminChatBanBtn" class="admin-action-btn chat-ban-btn" title="Kullanıcıyı sohbetten engelle / engeli kaldır" style="padding:10px; background:#ffb347; color:#08121a; border-radius:8px; border:none;">CHAT BAN / UNBAN</button>
+        </div>
+
+        <div class="field" style="flex:1; min-width:200px;">
+          <button id="openAdminChatWidget" class="admin-action-btn" style="padding:10px; background:var(--accent-primary); color:#021122; border-radius:8px; border:none;">Admin Chat'i Aç</button>
+        </div>
+      </div>
+
+      <div id="adminMessage" class="message error" style="display: none; width: 100%; margin-top: 10px;"></div>
+    </div>
+
+    <!-- Genel Ayarlar -->
+    <div class="card" style="padding: 12px; max-width:1100px; margin: 12px auto;">
+      <h3 style="margin-top:0; color:var(--text-muted); font-size:0.95rem;">Genel Ayarlar</h3>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+        <div style="flex:1; min-width:160px;">
+          <label>Günlük Tıklama Limiti (normal kullanıcı)</label>
+          <input id="settingDailyClick" type="number" min="1" step="1" style="width:100%; padding:8px; margin-top:6px;" />
+        </div>
+        <div style="flex:1; min-width:160px;">
+          <label>Günlük Kazanç Limiti ($)</label>
+          <input id="settingDailyEarn" type="number" min="0" step="0.01" style="width:100%; padding:8px; margin-top:6px;" />
+        </div>
+        <div style="flex:1; min-width:160px;">
+          <label>Minimum Çekim Tutarı ($)</label>
+          <input id="settingMinWithdraw" type="number" min="0" step="0.01" style="width:100%; padding:8px; margin-top:6px;" />
+        </div>
+        <div style="align-self:flex-end;">
+          <button id="saveSettingsBtn" style="padding:10px 14px; background:var(--accent-primary); color:#041022; border-radius:8px; border:none;">Ayarları Kaydet</button>
+        </div>
+      </div>
+      <p style="margin-top:8px; color:var(--text-muted); font-size:0.85rem;">Bu ayarlar normal kullanıcılar için geçerlidir. Premium kullanıcılar sınırsızdır.</p>
+
+      <p id="maintenanceStatusText" style="margin-top:8px; color:var(--text-muted); font-size:0.85rem;">Bakım kapalı.</p>
+      <p style="margin-top:6px; color:var(--text-muted); font-size:0.85rem;">Planlanan bakım, başlangıç zamanı gelince otomatik olarak etkinleştirilecektir.</p>
+    </div>
+
+    <!-- Duyuru Panosu -->
+    <div class="card" style="padding:12px; max-width:1100px; margin: 12px auto;">
+      <h3 style="margin-top:0; color:var(--text-muted); font-size:0.95rem;">Duyuru Panosu (Admin)</h3>
+      <div style="display:flex; gap:8px; flex-direction:column; margin-top:8px;">
+        <input id="announceTitleInput" placeholder="Duyuru Başlığı" style="padding:8px;" />
+        <textarea id="announceMsgInput" placeholder="Duyuru mesajı..." style="min-height:80px; padding:8px;"></textarea>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input id="announceExpiresInput" type="number" placeholder="Süre (saniye, boş=kalıcı)" style="padding:8px; width:180px;" />
+          <label style="display:flex; align-items:center; gap:6px; color:var(--text-muted);">
+            <input id="announceStickyInput" type="checkbox" /> Sticky (üstte sabit)
+          </label>
+          <button id="createAnnouncementBtn" style="margin-left:auto; padding:8px 12px; background:var(--accent-primary); color:#021122; border-radius:8px; border:none;">Duyuru Oluştur</button>
+        </div>
+        <div id="adminAnnouncementList" style="margin-top:10px; color:var(--text-muted)"></div>
+      </div>
+    </div>
+
+    <!-- Çekim Talepleri -->
+    <div class="card" style="padding: 12px; max-width:1100px; margin: 12px auto;">
+      <h3 style="margin-top:0; color:var(--text-muted); font-size:0.95rem;">Çekim Talepleri</h3>
+      <div style="overflow-x:auto;">
+        <table class="requests-table" style="margin-top:8px; min-width:800px;">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Kullanıcı</th>
+              <th>Tutar</th>
+              <th>Ad Soyad</th>
+              <th>Banka / IBAN</th>
+              <th>Tarih</th>
+              <th>Durum</th>
+              <th>İşlem</th>
+            </tr>
+          </thead>
+          <tbody id="requestsBody">
+            <tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Yükleniyor...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Leaderboard -->
+    <div class="card" style="padding:12px; max-width:1100px; margin: 12px auto;">
+      <h3 style="margin-top:0; color:var(--text-muted); font-size:0.95rem;">Leaderboard – En Zengin 15 Kullanıcı</h3>
+      <ol id="leaderboardTop15" style="margin:12px 0 0 0; padding-left:22px; font-size:1rem; line-height:1.8;"></ol>
+    </div>
+
+    <!-- Ekstra: En Yüksek Bakiye (ayrı liste, farklı id) -->
+    <div class="card" style="padding:12px; max-width:1100px; margin: 12px auto;">
+      <h3 style="margin-top:0; color:var(--text-muted); font-size:0.95rem;">Leaderboard / En Yüksek Bakiye</h3>
+      <ol id="leaderboardHighestBalances" style="margin-top:8px; color:var(--text-high);"></ol>
+    </div>
+
+    <button onclick="window.logoutAdmin()" class="logout-btn" style="width: 100%; max-width:1100px; margin: 6px auto 30px auto; display:block; padding:12px; border-radius:10px; background:rgba(255,255,255,0.03); border:1px solid var(--border-soft); color:var(--text-high);">Admin Çıkışı Yap</button>
+  </div>
+
+  <!-- Admin auth overlay -->
+  <div id="adminAuthView" class="success-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; justify-content: center; align-items: center; z-index: 1000; background: rgba(10, 25, 41, 0.95); backdrop-filter: blur(4px);">
+    <div class="form-container auth-form card" style="padding: 18px; max-width: 420px;">
+      <h2>Yönetici Girişi</h2>
+
+      <input type="email" id="adminEmailInput" required placeholder="Admin Email (ör: admin@lilemir.com)" style="width:100%; padding:10px; margin-top:6px; border-radius:8px;" />
+      <input type="password" id="adminPasswordInput" required placeholder="Admin Şifresi" style="width:100%; padding:10px; margin-top:6px; border-radius:8px;" />
+      <div id="adminAuthMessage" class="message error" style="display: none;"></div>
+
+      <div style="display:flex; gap:8px; margin-top:10px;">
+        <button id="adminAuthSubmit" class="cta-login" style="flex:1; padding:10px; border-radius:8px; background:var(--accent-primary); color:#041022; border:none;">Giriş Yap</button>
+        <button id="adminAuthClose" class="logout-btn" style="padding:10px; border-radius:8px; background:rgba(255,255,255,0.03); border:1px solid var(--border-soft); color:var(--text-high);">Kapat</button>
+      </div>
+
+      <p style="margin-top:10px; font-size:0.85rem; color:var(--text-muted);">Not: Hızlı admin çubuğu oturum açana kadar erişilemez.</p>
+    </div>
+  </div>
+
+  <!-- Admin chat widget -->
+  <div id="adminChatWidget" aria-live="polite" role="complementary" style="display:none; position:fixed; right:20px; bottom:20px; width:340px; z-index:2000; box-shadow:0 8px 24px rgba(0,0,0,0.25); border-radius:10px; overflow:hidden; background:var(--panel-bg);">
+    <div style="padding:12px; border-bottom:1px solid rgba(255,255,255,0.03); display:flex; justify-content:space-between; align-items:center;">
+      <strong style="color:var(--accent-primary)">Admin Chat</strong>
+      <button id="adminChatClose" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;">✕</button>
+    </div>
+    <div id="adminChatMessages" class="chat-messages" style="padding:8px; max-height:220px; overflow:auto;"></div>
+    <div style="display:flex; gap:8px; padding:10px;">
+      <input id="adminChatInput" type="text" placeholder="Mesajınız..." style="flex:1; padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.04); background:transparent; color:var(--text-high);">
+      <button id="adminChatSendBtn" style="padding:8px 12px; border-radius:8px; background:var(--accent-primary); border:none; color:#021122;">Gönder</button>
+    </div>
+  </div>
+
+  <div id="toastContainer" aria-live="polite" style="position:fixed; right:0; bottom:0; z-index:3000;"></div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyBlirRiiNPpdqmTAmq6DsSq8mCUlgBHgVc",
+      authDomain: "lilemir-new.firebaseapp.com",
+      projectId: "lilemir-new",
+      storageBucket: "lilemir-new.firebasestorage.app",
+      messagingSenderId: "339863121380",
+      appId: "1:339863121380:web:123195552e821b085e6bf1",
+      measurementId: "G-CC3033Q4EM"
+    };
+
+    // Firebase'i başlat
+    firebase.initializeApp(firebaseConfig);
+
+    // script.js'in ve aşağıdaki script'in kullanacağı global değişkenler
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const storage = firebase.storage(); // Depolama servisi eklendi.
+  </script>
+
+  <!--
+    Nadide bet-approval bridge:
+    - Shows real-time pending Tek/Çift (betRequests with status 'pending') across users.
+    - Allows approve/reject inline (writes to users doc similar to admin flow).
+    - Non-intrusive panel that does not cover page and respects existing layout.
+    - Does not rely on script.js export; it acts directly against Firestore.
+  -->
+  <script>
+    (function(){
+      const toggleBtn = document.getElementById('pendingBetsToggle');
+      const countEl = document.getElementById('pendingBetsCount');
+      const panel = document.getElementById('pendingBetsPanel');
+
+      if (!db) {
+        // If db not available, hide widget gracefully
+        document.getElementById('pendingBetsWidget').style.display = 'none';
+        return;
+      }
+
+      let latest = []; // cached pending bets
+
+      toggleBtn.addEventListener('click', (e) => {
+        panel.classList.toggle('open');
+      });
+
+      // Small helper to create safe text
+      function esc(s){ return String(s||'').replace(/[&<>"'`=\/]/g, function (c) {
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','/':'&#x2F;','=':'&#x3D;','`':'&#x60;'}[c];
+      }); }
+
+      // Attempt to gently highlight corresponding admin table row, if it exists
+      function highlightAdminRow(betId) {
+        // admin bet requests table may not exist in DOM; this is best-effort
+        const table = document.getElementById('betRequestsBody') || document.getElementById('requestsBody');
+        if (!table) return;
+        // search for a row that contains the betId (short id) in its cells
+        const rows = table.querySelectorAll('tr');
+        for (const r of rows) {
+          if (r.textContent && r.textContent.indexOf(betId.slice(0,10)) !== -1 || r.innerHTML.indexOf(betId) !== -1) {
+            r.classList.add('highlight-admin-row');
+            setTimeout(()=>r.classList.remove('highlight-admin-row'), 2400);
+            // ensure visible
+            r.scrollIntoView({ behavior:'smooth', block:'center' });
+            break;
+          }
+        }
+      }
+
+      // Approve / reject implementation that mirrors admin behavior in script.js
+      async function updateBetStatus(username, betId, action) {
+        try {
+          const userRef = db.collection('users').doc(username);
+          const doc = await userRef.get();
+          if (!doc.exists) throw new Error('Kullanıcı bulunamadı.');
+          const u = doc.data() || {};
+          const bets = Array.isArray(u.betRequests) ? u.betRequests.slice() : [];
+          let found = false;
+          let newBalance = Number(u.balance || 0);
+          const updated = bets.map(b => {
+            if (!b || !b.id) return b;
+            if (b.id === betId) {
+              found = true;
+              if (action === 'approve') {
+                b.status = 'approved';
+                b.approvedAt = new Date().toISOString();
+                newBalance = newBalance + Number(b.payout || 0);
+              } else if (action === 'reject') {
+                b.status = 'rejected';
+                b.rejectedAt = new Date().toISOString();
+                // stake already deducted at bet time (behavior matches script.js)
+              }
+            }
+            return b;
+          }).filter(Boolean);
+          if (!found) throw new Error('Talep bulunamadı.');
+          // commit minimal fields to avoid overwriting other data
+          await userRef.update({ betRequests: updated, balance: newBalance });
+          // small UI feedback: highlight row and refresh list
+          highlightAdminRow(betId);
+          setTimeout(()=>showPanelMessage('İşlem kaydedildi.'), 600);
+        } catch (err) {
+          console.error('updateBetStatus error', err);
+          showPanelMessage('Hata: ' + (err.message || err));
+        }
+      }
+
+      function showPanelMessage(msg, timeout = 2800) {
+        const note = document.createElement('div');
+        note.style.padding = '8px';
+        note.style.borderRadius = '8px';
+        note.style.background = 'rgba(0,0,0,0.06)';
+        note.style.color = 'var(--text-high)';
+        note.style.fontSize = '0.92rem';
+        note.textContent = msg;
+        panel.insertBefore(note, panel.firstChild);
+        setTimeout(()=>note.remove(), timeout);
+      }
+
+      function renderPanel(items) {
+        panel.innerHTML = '';
+        if (!items || items.length === 0) {
+          panel.innerHTML = '<div class="pending-bets-empty">Bekleyen Tek/Çift talebi yok.</div>';
+          countEl.textContent = '0';
+          return;
+        }
+        countEl.textContent = String(items.length);
+        items.forEach(it => {
+          const el = document.createElement('div');
+          el.className = 'pending-bet-item';
+          const left = document.createElement('div');
+          left.style.flex = '1';
+          left.innerHTML = `<div><strong>${esc(it.username)}</strong> <span class="pending-bet-meta">• ${esc(it.choice || '')} • ${esc(it.resultNumber || '')}</span></div>
+                            <div class="pending-bet-meta">${new Date(it.createdAt || Date.now()).toLocaleString()}</div>`;
+          const right = document.createElement('div');
+          right.className = 'pending-bet-actions';
+          const approveBtn = document.createElement('button');
+          approveBtn.className = 'approve';
+          approveBtn.textContent = 'Onayla';
+          approveBtn.onclick = async () => {
+            approveBtn.disabled = true; rejectBtn.disabled = true;
+            await updateBetStatus(it.username, it.id, 'approve');
+            // reflect immediately in UI
+            el.style.opacity = '0.45';
+            setTimeout(()=>el.remove(), 700);
+          };
+          const rejectBtn = document.createElement('button');
+          rejectBtn.className = 'reject';
+          rejectBtn.textContent = 'Reddet';
+          rejectBtn.onclick = async () => {
+            approveBtn.disabled = true; rejectBtn.disabled = true;
+            await updateBetStatus(it.username, it.id, 'reject');
+            el.style.opacity = '0.45';
+            setTimeout(()=>el.remove(), 700);
+          };
+          const openInTableBtn = document.createElement('button');
+          openInTableBtn.style.marginLeft = '6px';
+          openInTableBtn.textContent = 'Tabloyu göster';
+          openInTableBtn.onclick = () => {
+            // try to open admin panel view and scroll to bet-requests table if present
+            const panelView = document.getElementById('adminPanelView');
+            if (panelView) {
+              // ensure visible and scroll to requests section
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              setTimeout(()=> highlightAdminRow(it.id), 450);
+            }
+          };
+
+          right.appendChild(approveBtn);
+          right.appendChild(rejectBtn);
+          right.appendChild(openInTableBtn);
+
+          el.appendChild(left);
+          el.appendChild(right);
+          panel.appendChild(el);
+        });
+      }
+
+      // Real-time listener: gather pending betRequests from all users
+      const unsubscribe = db.collection('users').onSnapshot(snapshot => {
+        try {
+          const pending = [];
+          snapshot.forEach(doc => {
+            const u = doc.data() || {};
+            const username = doc.id || u.username || '';
+            if (!Array.isArray(u.betRequests)) return;
+            for (const b of u.betRequests) {
+              if (b && b.status === 'pending') {
+                pending.push({
+                  id: b.id,
+                  username,
+                  stake: b.stake,
+                  payout: b.payout,
+                  choice: b.choice,
+                  resultNumber: b.resultNumber,
+                  createdAt: b.createdAt || b.createdAt,
+                  raw: b
+                });
+              }
+            }
+          });
+          // sort by createdAt desc (most recent first)
+          pending.sort((a,b) => {
+            const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return tb - ta;
+          });
+          latest = pending;
+          renderPanel(latest);
+        } catch (e) {
+          console.warn('pending bets render error', e);
+        }
+      }, err => {
+        console.error('pending bets listener error', err);
+      });
+
+      // Close panel if clicked outside
+      document.addEventListener('click', (ev) => {
+        const w = document.getElementById('pendingBetsWidget');
+        if (!w) return;
+        if (!w.contains(ev.target) && panel.classList.contains('open')) {
+          panel.classList.remove('open');
+        }
+      });
+
+      // Clean up when page unloads
+      window.addEventListener('beforeunload', () => {
+        try { unsubscribe && unsubscribe(); } catch(e){}
+      });
+
+      // Expose a minimal debug function for devs (non-intrusive)
+      window.__pendingBets = {
+        list: () => latest.slice(),
+        openPanel: () => panel.classList.add('open'),
+        closePanel: () => panel.classList.remove('open')
+      };
+    })();
+  </script>
+
+  <script src="script.js"></script>
+
+  <script>
+    // Glue script: bottom bar actions, mobile toggle, admin chat hookup
+    document.addEventListener('DOMContentLoaded', () => {
+      const bUser = document.getElementById('bottomAdminUsername');
+      const bAmt = document.getElementById('bottomAdminAmount');
+
+      function copyToOriginal() {
+        const origUser = document.getElementById('adminUsername');
+        const origAmt = document.getElementById('adminAmount');
+        if (origUser && bUser) origUser.value = bUser.value;
+        if (origAmt && bAmt && bAmt.value !== '') origAmt.value = bAmt.value;
+      }
+
+      const mapBtn = (id, origId) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+          copyToOriginal();
+          const orig = document.getElementById(origId);
+          if (orig) orig.click();
+        });
+      };
+
+      mapBtn('bottomAddBtn', 'adminAddBtn');
+      mapBtn('bottomTakeBtn', 'adminTakeBtn');
+      mapBtn('bottomBanBtn', 'adminBanBtn');
+      mapBtn('bottomPremiumBtn', 'adminPremiumBtn');
+      mapBtn('bottomModBtn', 'adminMakeModBtn');
+
+      const bottomToggle = document.getElementById('bottomToggleMenu');
+      if (bottomToggle) bottomToggle.addEventListener('click', () => document.body.classList.toggle('menu-open'));
+
+      // Admin chat wiring
+      const adminChatSendBtn = document.getElementById('adminChatSendBtn');
+      const adminChatInput = document.getElementById('adminChatInput');
+      const adminChatMessages = document.getElementById('adminChatMessages');
+      const adminChatClose = document.getElementById('adminChatClose');
+      const openAdminChatWidget = document.getElementById('openAdminChatWidget');
+      const adminChatWidget = document.getElementById('adminChatWidget');
+
+      // Global auth değişkenine erişim artık garantilendi
+      function adminName() {
+        try {
+          const u = auth.currentUser;
+          if (u && u.email) return u.email.split('@')[0];
+        } catch (e) {}
+        return localStorage.getItem('bio_admin_logged_in_v9') === 'true' ? 'admin' : 'anon';
+      }
+
+      let adminUnsub = null;
+      function startAdminChat() {
+        if (!adminChatMessages) return;
+        if (adminUnsub) try { adminUnsub(); } catch(e){}
+        adminUnsub = db.collection('chat').orderBy('timestamp','asc').limitToLast(200).onSnapshot(snap => {
+          adminChatMessages.innerHTML = '';
+          snap.forEach(doc => {
+            const m = doc.data() || {};
+            const who = m.username || m.user || 'Anon';
+            const text = m.text || m.message || '';
+            const div = document.createElement('div');
+            div.className = 'chat-message' + (who === adminName() ? ' me' : '');
+            div.innerHTML = `<span class="username">${who}:</span> ${text}`;
+            adminChatMessages.appendChild(div);
+          });
+          adminChatMessages.scrollTop = adminChatMessages.scrollHeight;
+        });
+      }
+
+      if (openAdminChatWidget) {
+        openAdminChatWidget.addEventListener('click', () => {
+          if (adminChatWidget) adminChatWidget.style.display = 'block';
+          if (auth && auth.currentUser) startAdminChat();
+        });
+      }
+
+      if (adminChatSendBtn) {
+        adminChatSendBtn.addEventListener('click', () => {
+          const text = (adminChatInput.value || '').trim();
+          if (!text) return;
+          db.collection('chat').add({
+            username: adminName(),
+            text,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp()
+          }).then(() => adminChatInput.value = '').catch(e => console.error(e));
+        });
+      }
+
+      if (adminChatClose) {
+        adminChatClose.addEventListener('click', () => {
+          if (adminChatWidget) adminChatWidget.style.display = 'none';
+          if (adminUnsub) try { adminUnsub(); } catch(e){}
+        });
+      }
+
+      // start admin chat when auth ready
+      if (auth && auth.currentUser) startAdminChat();
+      auth.onAuthStateChanged(u => { if (u) startAdminChat(); });
+
+      // Observe adminPanelView display changes to (re)start chat when shown
+      const panel = document.getElementById('adminPanelView');
+      if (panel) {
+        const mo = new MutationObserver(() => {
+          if (getComputedStyle(panel).display !== 'none') startAdminChat();
+        });
+        mo.observe(panel, { attributes: true, attributeFilter: ['style'] });
+      }
+    });
+  </script>
+</body>
+</html>
